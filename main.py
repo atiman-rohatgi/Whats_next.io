@@ -10,6 +10,7 @@ import google.generativeai as genai
 from sentence_transformers import SentenceTransformer
 import chromadb
 import re
+from fastapi.middleware.cors import CORSMiddleware
 
 # --- 1. Pydantic Models for All API Endpoints ---
 class UserInput(BaseModel):
@@ -24,6 +25,11 @@ class ChatInput(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
+
+# NEW: Add a Pydantic model for the search response
+class SearchResponse(BaseModel):
+    results: list[str]
+
 
 # --- 2. Global Object to Hold All Loaded Models ---
 ml_models = {}
@@ -43,7 +49,6 @@ async def lifespan(app: FastAPI):
 
         # --- Load RAG Chatbot Artifacts ---
         load_dotenv()
-        # --- SECURITY FIX: Load the key from the environment variable NAME, not the key itself ---
         GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
         if GOOGLE_API_KEY:
             genai.configure(api_key=GOOGLE_API_KEY)
@@ -67,6 +72,20 @@ async def lifespan(app: FastAPI):
 # --- 4. Create the FastAPI App Instance ---
 app = FastAPI(lifespan=lifespan, title="Game Discovery API")
 
+# --- ADD THIS CORS MIDDLEWARE BLOCK ---
+origins = [
+    "http://localhost:3000", # The origin of your Next.js frontend
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# ------------------------------------
+
 # --- 5. Recommendation Logic Function (Corrected) ---
 def get_recommendations(game_titles: list[str], ratings: list[int], k: int = 5):
     """Generates a list of personalized game recommendations."""
@@ -77,22 +96,18 @@ def get_recommendations(game_titles: list[str], ratings: list[int], k: int = 5):
     df = ml_models["df_games"]
 
     input_vectors = []
-    # NEW: Create a list for only the ratings of games that are found
     valid_ratings = [] 
     for title, rating in zip(game_titles, ratings):
         cleaned_title = title.lower().strip()
         if cleaned_title in title_to_index:
             input_vectors.append(vectors[title_to_index[cleaned_title]])
-            # Only add the rating if the game was found
             valid_ratings.append(rating) 
 
     if not input_vectors:
         return []
 
-    # Use the new 'valid_ratings' list for the weights
     query_vector = np.average(input_vectors, axis=0, weights=valid_ratings).reshape(1, -1).astype('float32')
 
-    # ... (the rest of the function remains the same) ...
     if hasattr(index, 'nprobe'):
         index.nprobe = 10
     
@@ -112,7 +127,6 @@ def get_recommendations(game_titles: list[str], ratings: list[int], k: int = 5):
 
 # --- 6. RAG Chatbot Logic ---
 def retrieve_context(query, n_results=5):
-    # (Your retrieve_context function here)
     df = ml_models["df_games"]
     embedding_model = ml_models["embedding_model"]
     game_collection = ml_models["game_collection"]
@@ -154,6 +168,19 @@ def generate_answer(query, context):
 
 
 # --- 7. API Endpoints ---
+# NEW: Added the /search endpoint
+@app.get("/search", response_model=SearchResponse)
+def search_games(q: str):
+    """
+    Searches for games based on a partial query string to populate a dropdown.
+    """
+    df = ml_models["df_games"]
+    
+    matches = df[df['name_cleaned'].str.contains(q, case=False, na=False)]
+    
+    return {"results": matches.head(10)['name'].tolist()}
+
+
 @app.post("/recommend", response_model=RecommendationResponse)
 def recommend_games_endpoint(user_input: UserInput):
     if len(user_input.game_titles) != len(user_input.ratings):
