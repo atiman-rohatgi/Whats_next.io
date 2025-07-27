@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import axios from 'axios';
-import Chatbot from '../components/Chatbot'; // Import the new component
+import { useRouter } from 'next/navigation';
+import { useAuthStore } from '../store/authStore';
+import apiClient from '../services/apiClient';
+import Chatbot from '../components/Chatbot';
 
 interface Game {
   name: string;
@@ -10,6 +12,17 @@ interface Game {
 }
 
 export default function Home() {
+  // --- Authentication and Protection ---
+  const token = useAuthStore((state) => state.token);
+  const logout = useAuthStore((state) => state.logout); // Get the logout function
+  const router = useRouter();
+
+  useEffect(() => {
+    if (token === null) {
+      router.push('/login');
+    }
+  }, [token, router]);
+
   // State for the recommender
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<string[]>([]);
@@ -18,21 +31,22 @@ export default function Home() {
 
   // --- API LOGIC for Recommender ---
   useEffect(() => {
-    if (searchQuery.length < 3) {
+    if (searchQuery.length < 3 || !token) {
       setSearchResults([]);
       return;
     }
     const fetchGames = async () => {
       try {
-        const response = await axios.get(`http://127.0.0.1:8000/search?q=${searchQuery}`);
+        const response = await apiClient.get(`/search?q=${searchQuery}`);
         setSearchResults(response.data.results);
       } catch (error) {
         console.error("Error fetching search results:", error);
       }
     };
+
     const timeoutId = setTimeout(fetchGames, 300);
     return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
+  }, [searchQuery, token]);
 
   const handleSelectGame = (gameName: string) => {
     if (selectedGames.length < 5 && !selectedGames.find(g => g.name === gameName)) {
@@ -61,18 +75,32 @@ export default function Home() {
         game_titles: selectedGames.map(g => g.name),
         ratings: selectedGames.map(g => g.rating)
       };
-      const response = await axios.post('http://127.0.0.1:8000/recommend', payload);
+      const response = await apiClient.post('/recommend', payload);
       setRecommendations(response.data.recommendations);
     } catch (error) {
       console.error("Error fetching recommendations:", error);
     }
   };
+  
+  if (token === null) {
+    return <div>Loading...</div>;
+  }
 
   // --- UI (JSX) ---
   return (
     <main className="flex min-h-screen flex-col items-center p-8 sm:p-24 bg-[#0d1117] text-gray-200">
       <div className="z-10 w-full max-w-2xl font-mono text-sm">
-        <h1 className="text-4xl font-bold text-center mb-12 text-white">My Game Recommendation Engine</h1>
+        
+        {/* --- NEW: Header with Logout Button --- */}
+        <div className="flex justify-between items-center w-full mb-12">
+            <h1 className="text-4xl font-bold text-white">My Game Recommendation Engine</h1>
+            <button
+                onClick={logout}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md"
+            >
+                Logout
+            </button>
+        </div>
 
         {/* --- Search and Selection --- */}
         <div className="relative mb-8">
@@ -155,7 +183,6 @@ export default function Home() {
         </div>
       </div>
       
-      {/* Render the Chatbot Component */}
       <Chatbot />
     </main>
   );
