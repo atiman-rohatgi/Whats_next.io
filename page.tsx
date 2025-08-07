@@ -6,15 +6,26 @@ import { useAuthStore } from '../store/authStore';
 import apiClient from '../services/apiClient';
 import Chatbot from '../components/Chatbot';
 
+// --- UPDATED: New interfaces for more detailed game data ---
+interface PlatformInfo {
+  windows: boolean;
+  mac: boolean;
+  linux: boolean;
+  ps4: boolean;
+  ps5: boolean;
+  xbox: boolean;
+}
+
 interface Game {
   name: string;
   rating: number;
+  platforms?: PlatformInfo; // Platforms are now part of the Game state
 }
 
 export default function Home() {
   // --- Authentication and Protection ---
   const token = useAuthStore((state) => state.token);
-  const logout = useAuthStore((state) => state.logout); // Get the logout function
+  const logout = useAuthStore((state) => state.logout);
   const router = useRouter();
 
   useEffect(() => {
@@ -48,9 +59,26 @@ export default function Home() {
     return () => clearTimeout(timeoutId);
   }, [searchQuery, token]);
 
-  const handleSelectGame = (gameName: string) => {
-    if (selectedGames.length < 5 && !selectedGames.find(g => g.name === gameName)) {
-      setSelectedGames([...selectedGames, { name: gameName, rating: 5 }]);
+  // --- UPDATED: handleSelectGame now fetches platform details ---
+  const handleSelectGame = async (gameName: string) => {
+    // UPDATED: Increased game limit to 10
+    if (selectedGames.length < 10 && !selectedGames.find(g => g.name === gameName)) {
+      // Add the game immediately for a responsive UI
+      const newGame: Game = { name: gameName, rating: 5 };
+      setSelectedGames(prev => [...prev, newGame]);
+      
+      // Now, fetch the platform details in the background
+      try {
+        const response = await apiClient.get(`/game-details/${gameName}`);
+        const platforms = response.data.platforms;
+        
+        // Update the game in the list with its platform info
+        setSelectedGames(prev => prev.map(g => 
+          g.name === gameName ? { ...g, platforms } : g
+        ));
+      } catch (error) {
+        console.error("Error fetching game details:", error);
+      }
     }
     setSearchQuery('');
     setSearchResults([]);
@@ -91,7 +119,6 @@ export default function Home() {
     <main className="flex min-h-screen flex-col items-center p-8 sm:p-24 bg-[#0d1117] text-gray-200">
       <div className="z-10 w-full max-w-2xl font-mono text-sm">
         
-        {/* --- NEW: Header with Logout Button --- */}
         <div className="flex justify-between items-center w-full mb-12">
             <h1 className="text-4xl font-bold text-white">My Game Recommendation Engine</h1>
             <button
@@ -102,7 +129,6 @@ export default function Home() {
             </button>
         </div>
 
-        {/* --- Search and Selection --- */}
         <div className="relative mb-8">
           <h2 className="text-2xl mb-3 font-semibold text-gray-100">Search for Games You've Played</h2>
           <input
@@ -127,33 +153,40 @@ export default function Home() {
           )}
         </div>
 
-        {/* --- Display for Selected Games --- */}
+        {/* --- UPDATED: Display for Selected Games with Platform Bubbles --- */}
         <div className="mb-8">
           <h3 className="text-xl font-semibold mb-3 text-gray-100">Your Selected Games:</h3>
           {selectedGames.length > 0 ? (
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {selectedGames.map((game) => (
-                <li 
-                  key={game.name} 
-                  className="flex justify-between items-center bg-slate-800 text-white p-3 rounded-md"
-                >
-                  <span className="font-medium">{game.name}</span>
-                  <div className="flex items-center space-x-4">
-                    <span className="font-bold w-4 text-center">{game.rating}</span>
-                    <input 
-                      type="range" 
-                      min="1" 
-                      max="10" 
-                      value={game.rating}
-                      onChange={(e) => handleRatingChange(game.name, parseInt(e.target.value))}
-                      className="cursor-pointer"
-                    />
+                <li key={game.name} className="bg-slate-800 text-white p-4 rounded-md">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-lg">{game.name}</span>
                     <button 
                       onClick={() => handleRemoveGame(game.name)}
                       className="bg-red-500 hover:bg-red-700 text-white font-bold w-8 h-8 rounded-full flex items-center justify-center"
                     >
                       &times;
                     </button>
+                  </div>
+                  <div className="flex items-center space-x-4 mt-3">
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="10" 
+                      value={game.rating}
+                      onChange={(e) => handleRatingChange(game.name, parseInt(e.target.value))}
+                      className="cursor-pointer w-full"
+                    />
+                    <span className="font-bold w-4 text-center">{game.rating}</span>
+                  </div>
+                  <div className="flex items-center space-x-2 mt-3 flex-wrap">
+                    {game.platforms?.windows && <span className="bg-blue-500 text-white text-xs font-semibold mt-1 px-2 py-1 rounded-full">Windows</span>}
+                    {game.platforms?.mac && <span className="bg-gray-500 text-white text-xs font-semibold mt-1 px-2 py-1 rounded-full">Mac</span>}
+                    {game.platforms?.linux && <span className="bg-yellow-500 text-black text-xs font-semibold mt-1 px-2 py-1 rounded-full">Linux</span>}
+                    {game.platforms?.ps5 && <span className="bg-indigo-500 text-white text-xs font-semibold mt-1 px-2 py-1 rounded-full">PS5</span>}
+                    {game.platforms?.ps4 && <span className="bg-indigo-400 text-white text-xs font-semibold mt-1 px-2 py-1 rounded-full">PS4</span>}
+                    {game.platforms?.xbox && <span className="bg-green-500 text-white text-xs font-semibold mt-1 px-2 py-1 rounded-full">Xbox</span>}
                   </div>
                 </li>
               ))}
@@ -163,7 +196,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* --- Get Recommendations Button --- */}
         <div className="mb-8">
           <button
             onClick={handleGetRecommendations}
@@ -174,7 +206,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* --- Display Recommendations --- */}
         <div className="w-full">
           <h2 className="text-2xl mb-3 font-semibold text-gray-100">Your Recommendations:</h2>
           <pre className="bg-slate-800 p-4 rounded-md overflow-x-auto">

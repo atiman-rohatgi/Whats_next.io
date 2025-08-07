@@ -172,3 +172,29 @@ def handle_chat(chat_input: ChatInput, current_user: schemas.User = Depends(secu
     context = retrieve_context(chat_input.query)
     answer = generate_answer(chat_input.query, context)
     return {"answer": answer}
+
+@app.get("/game-details/{game_name}")
+def get_game_details(game_name: str):
+    """
+    Retrieves detailed information, like platforms, for a specific game.
+    """
+    df = ml_models["df_games"]
+    
+    # Use the cleaned name for a robust search
+    cleaned_name = game_name.lower().strip()
+    game_data = df[df['name_cleaned'] == cleaned_name]
+    
+    if game_data.empty:
+        raise HTTPException(status_code=404, detail="Game not found")
+        
+    # Get the first match and extract only the platform info
+    game = game_data.iloc[0]
+    platforms = {
+        "windows": bool(game['windows']),
+        "mac": bool(game['mac']),
+        "linux": bool(game['linux']),
+        "ps4": bool(game['ps4']),
+        "ps5": bool(game['ps5']),
+        "xbox": bool(game['xbox']),
+    }
+    return {"platforms": platforms}
